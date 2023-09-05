@@ -6,6 +6,7 @@ import (
 
 	"encore.app/bill/activity"
 	"encore.app/bill/workflow"
+
 	"encore.dev"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -13,7 +14,7 @@ import (
 
 var (
 	envName       = encore.Meta().Environment.Name
-	feesTaskQueue = envName + "-fees"
+	billsTaskQueue = envName + "-bills"
 )
 
 // Service is the bill service.
@@ -31,9 +32,15 @@ func initService() (*Service, error) {
 		return nil, fmt.Errorf("create temporal client: %w", err)
 	}
 
-	w := worker.New(c, feesTaskQueue, worker.Options{})
+	w := worker.New(c, billsTaskQueue, worker.Options{})
+	w.RegisterActivity(activity.FetchBill)
+
 	w.RegisterWorkflow(workflow.CreateBill)
 	w.RegisterActivity(activity.CreateBill)
+
+	w.RegisterWorkflow(workflow.ChargeBill)
+	w.RegisterActivity(activity.ChargeBill)
+	w.RegisterActivity(activity.CloseBill)
 
 	if err := w.Start(); err != nil {
 		c.Close()
