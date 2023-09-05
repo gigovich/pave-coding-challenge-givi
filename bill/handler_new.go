@@ -32,7 +32,12 @@ func (s *Service) New(ctx context.Context, request *NewRequest) (*NewResponse, e
 		CustomerID: request.Customer,
 		TimePeriod: request.TimePeriodInSeconds,
 	}
-	we, err := s.client.ExecuteWorkflow(ctx, options, workflow.CreateBill, bill)
+	we, err := s.client.ExecuteWorkflow(
+		context.Background(),
+		options,
+		workflow.CreateBill,
+		bill,
+	)
 	if err != nil {
 		return nil, err
 	}

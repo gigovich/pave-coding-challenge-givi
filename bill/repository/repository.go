@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -46,15 +47,19 @@ func (b Bill) Create(ctx context.Context) (*Bill, error) {
 
 // Fetch fetches a bill from the database.
 func (b *Bill) Fetch(ctx context.Context) error {
+	var closedAt sql.NullTime
 	err := db.QueryRow(
 		ctx,
 		(`SELECT`+
 			` b.customer_id, b.time_period, b.created_at, b.closed_at`+
 			` FROM bills AS b WHERE id = $1`),
 		b.ID,
-	).Scan(&b.CustomerID, &b.TimePeriod, &b.CreatedAt, &b.ClosedAt)
+	).Scan(&b.CustomerID, &b.TimePeriod, &b.CreatedAt, &closedAt)
 	if err != nil {
 		return fmt.Errorf("failed to create bill: %w", err)
+	}
+	if closedAt.Valid {
+		b.ClosedAt = &closedAt.Time
 	}
 
 	stmt, err := db.Query(
@@ -69,6 +74,7 @@ func (b *Bill) Fetch(ctx context.Context) error {
 	}
 	defer stmt.Close()
 
+	b.Charges = make([]BillCharge, 0)
 	for stmt.Next() {
 		var c BillCharge
 		if err := stmt.Scan(&c.ID, nil, &c.Amount, &c.CreatedAt); err != nil {
@@ -81,21 +87,25 @@ func (b *Bill) Fetch(ctx context.Context) error {
 }
 
 // Close closes a bill set closed date to now.
-func (b *Bill) Close(ctx context.Context) error {
+func (b Bill) Close(ctx context.Context) error {
 	if b.ID == 0 {
-		return fmt.Errorf("bill has not been created")
+		return fmt.Errorf("bill ID can't be 0 when close")
 	}
 	_, err := db.Exec(
 		ctx,
 		`UPDATE bills SET closed_at = NOW() WHERE id = $1;`,
+		b.ID,
 	)
-	return fmt.Errorf("failed to close bill: %w", err)
+	if err != nil {
+		return fmt.Errorf("failed to close bill: %w", err)
+	}
+	return nil
 }
 
 // Charge adds a charge to a bill.
-func (b *Bill) Charge(ctx context.Context, amount decimal.Decimal) error {
+func (b Bill) Charge(ctx context.Context, amount decimal.Decimal) error {
 	if b.ID == 0 {
-		return fmt.Errorf("bill has not been created")
+		return fmt.Errorf("bill ID can't be 0 when charge")
 	}
 	_, err := db.Exec(
 		ctx,
