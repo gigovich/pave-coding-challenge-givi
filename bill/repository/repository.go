@@ -21,11 +21,12 @@ type BillCharge struct {
 
 // Bill is a database model for the bill table.
 type Bill struct {
-	ID         int       `json:"id"`
-	CustomerID int       `json:"customer"`
-	TimePeriod uint      `json:"time_period"`
-	CreatedAt  time.Time `json:"created_at"`
-	ClosedAt   *time.Time `json:"closed_at"`
+	ID         int             `json:"id"`
+	CustomerID int             `json:"customer"`
+	TimePeriod uint            `json:"time_period"`
+	Total      decimal.Decimal `json:"total"`
+	CreatedAt  time.Time       `json:"created_at"`
+	ClosedAt   *time.Time      `json:"closed_at"`
 
 	Charges []BillCharge `json:"charges"`
 }
@@ -51,20 +52,22 @@ func (b *Bill) Fetch(ctx context.Context) error {
 	err := db.QueryRow(
 		ctx,
 		(`SELECT`+
-			` b.customer_id, b.time_period, b.created_at, b.closed_at`+
+			` b.customer_id, b.time_period, b.created_at, b.closed_at,`+
+			` (SELECT COALESCE(sum(amount), 0) AS total FROM bill_charges WHERE bill_id=$1)`+
 			` FROM bills AS b WHERE id = $1`),
 		b.ID,
-	).Scan(&b.CustomerID, &b.TimePeriod, &b.CreatedAt, &closedAt)
+	).Scan(&b.CustomerID, &b.TimePeriod, &b.CreatedAt, &closedAt, &b.Total)
 	if err != nil {
 		return fmt.Errorf("failed to create bill: %w", err)
 	}
 	if closedAt.Valid {
 		b.ClosedAt = &closedAt.Time
+		b.Total = b.Total.RoundUp(2) // As final bill pay amount need to be rounded up to 2 decimal places.
 	}
 
 	stmt, err := db.Query(
 		ctx,
-		(`SELECT`+
+		(`SELECT` +
 			` c.id, c.bill_id, c.amount, c.created_at AS charge_create_at` +
 			` FROM bill_charges AS c WHERE c.bill_id = $1 ORDER BY id;`),
 		b.ID,

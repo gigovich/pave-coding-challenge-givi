@@ -3,6 +3,8 @@ package bill
 import (
 	"context"
 
+	"encore.app/bill/repository"
+
 	"encore.app/bill/workflow"
 	"github.com/shopspring/decimal"
 )
@@ -12,7 +14,8 @@ type ChargeRequest struct {
 }
 
 type ChargeResponse struct {
-	Message string `json:"message"`
+	Charged string `json:"charged"`
+	Total   string `json:"total"`
 }
 
 //encore:api public method=POST path=/bill/charge/:billID
@@ -31,5 +34,15 @@ func (s *Service) Charge(
 		return nil, err
 	}
 
-	return &ChargeResponse{Message: "charged"}, nil
+	query, err := s.client.QueryWorkflow(ctx, wID, "", workflow.QueryBill)
+	if err != nil {
+		return nil, err
+	}
+
+	var bill repository.Bill
+	if err := query.Get(&bill); err != nil {
+		return nil, err
+	}
+
+	return &ChargeResponse{Charged: request.Amount, Total: bill.Total.RoundUp(2).String()}, nil
 }

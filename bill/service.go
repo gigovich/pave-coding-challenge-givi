@@ -33,14 +33,14 @@ func initService() (*Service, error) {
 	}
 
 	w := worker.New(c, billsTaskQueue, worker.Options{})
-	w.RegisterActivity(activity.FetchBill)
+	w.RegisterActivity(activity.FetchBillActivity)
 
-	w.RegisterWorkflow(workflow.CreateBill)
-	w.RegisterActivity(activity.CreateBill)
+	w.RegisterWorkflow(workflow.CreateBillWorkflow)
+	w.RegisterActivity(activity.CreateBillActivity)
 
-	w.RegisterWorkflow(workflow.ChargeBill)
-	w.RegisterActivity(activity.ChargeBill)
-	w.RegisterActivity(activity.CloseBill)
+	w.RegisterWorkflow(workflow.ChargeBillWorkflow)
+	w.RegisterActivity(activity.ChargeBillActivity)
+	w.RegisterActivity(activity.CloseBillActivity)
 
 	if err := w.Start(); err != nil {
 		c.Close()

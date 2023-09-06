@@ -35,7 +35,7 @@ func (s *Service) New(ctx context.Context, request *NewRequest) (*NewResponse, e
 	we, err := s.client.ExecuteWorkflow(
 		context.Background(),
 		options,
-		workflow.CreateBill,
+		workflow.CreateBillWorkflow,
 		bill,
 	)
 	if err != nil {

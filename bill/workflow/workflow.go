@@ -20,18 +20,19 @@ const (
 	SignalChargeBill = "charge-bill"
 )
 
-// GetChargeWorkflowID returns the workflow ID for the charge workflow
+// GetChargeWorkflowID returns the workflow ID for the charge workflow.
 func GetChargeWorkflowID(billID int) string {
 	return "bill-charges-workflow-" + strconv.Itoa(billID)
 }
 
-func CreateBill(ctx workflow.Context, bill repository.Bill) (int, error) {
+// CreateBillWorkflow and return Bill ID, run child workflow to charge the bill.
+func CreateBillWorkflow(ctx workflow.Context, bill repository.Bill) (int, error) {
 	err := workflow.
 		ExecuteActivity(
 			workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: time.Second * 5,
 			}),
-			activity.CreateBill,
+			activity.CreateBillActivity,
 			bill,
 		).
 		Get(ctx, &bill.ID)
@@ -43,7 +44,7 @@ func CreateBill(ctx workflow.Context, bill repository.Bill) (int, error) {
 			workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: time.Second * 5,
 			}),
-			activity.FetchBill,
+			activity.FetchBillActivity,
 			bill,
 		).
 		Get(ctx, &bill)
@@ -59,7 +60,7 @@ func CreateBill(ctx workflow.Context, bill repository.Bill) (int, error) {
 		ParentClosePolicy:  enumspb.PARENT_CLOSE_POLICY_ABANDON,
 	})
 
-	ch := workflow.ExecuteChildWorkflow(ctx, ChargeBill, bill).GetChildWorkflowExecution()
+	ch := workflow.ExecuteChildWorkflow(ctx, ChargeBillWorkflow, bill).GetChildWorkflowExecution()
 	if err := ch.Get(ctx, nil); err != nil {
 		return 0, err
 	}
@@ -67,7 +68,10 @@ func CreateBill(ctx workflow.Context, bill repository.Bill) (int, error) {
 	return bill.ID, nil
 }
 
-func ChargeBill(ctx workflow.Context, bill repository.Bill) error {
+// ChargeBillWorkflow runs asynchronously and recieves signals to charge the bill.
+// It will close the bill after the time period is over.
+// This workflow can be queried to get the current state of the bill even when the workflow is closed.
+func ChargeBillWorkflow(ctx workflow.Context, bill repository.Bill) error {
 	err := workflow.SetQueryHandler(ctx, QueryBill, func() (repository.Bill, error) {
 		return bill, nil
 	})
@@ -87,6 +91,7 @@ func ChargeBill(ctx workflow.Context, bill repository.Bill) error {
 	channel := workflow.GetSignalChannel(ctx, SignalChargeBill)
 	selector.AddReceive(channel, func(c workflow.ReceiveChannel, more bool) {
 		channel.Receive(ctx, &amount)
+		bill.Total = bill.Total.Add(amount)
 	})
 
 	for {
@@ -98,14 +103,14 @@ func ChargeBill(ctx workflow.Context, bill repository.Bill) error {
 		// we expect close bill by timer or charge bill
 		if closeBill {
 			err = workflow.
-				ExecuteActivity(ctx, activity.CloseBill, bill).
+				ExecuteActivity(ctx, activity.CloseBillActivity, bill).
 				Get(ctx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("failed to close bill", "err", err)
 			}
 		} else {
 			err = workflow.
-				ExecuteActivity(ctx, activity.ChargeBill, bill, amount).
+				ExecuteActivity(ctx, activity.ChargeBillActivity, bill, amount).
 				Get(ctx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("failed to charge bill", "amount", amount, "err", err)
@@ -113,8 +118,9 @@ func ChargeBill(ctx workflow.Context, bill repository.Bill) error {
 		}
 
 		// in any case updale the local state of the bill from the database
+		// to make sure we have the latest state and it safe to query after the workflow is closed
 		err = workflow.
-			ExecuteActivity(ctx, activity.FetchBill, bill).
+			ExecuteActivity(ctx, activity.FetchBillActivity, bill).
 			Get(ctx, &bill)
 		if err != nil {
 			workflow.GetLogger(ctx).Error("failed to fetch bill", "err", err)
